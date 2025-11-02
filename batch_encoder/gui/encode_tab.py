@@ -1,0 +1,214 @@
+"""
+encode_tab.py
+-------------
+Encoding dashboard with per-worker progress bars and duration-weighted overall progress.
+"""
+
+from __future__ import annotations
+import tkinter as tk
+from tkinter import ttk, messagebox
+import psutil, time, queue
+from .localization import _
+
+
+class EncodeTab(ttk.Frame):
+    """Main encoding dashboard with controls, monitor, progress, and logs."""
+
+    def __init__(self, master, main_app):
+        super().__init__(master)
+        self.main_app = main_app
+        self.settings = main_app.settings
+        self.controller = main_app.controller
+        self.print_q: queue.Queue = main_app.print_q
+        self.running = False
+        self._build_ui()
+        self._start_system_monitor()
+
+    # -------------------- UI --------------------
+
+    def _build_ui(self):
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(3, weight=1)
+        self._build_controls_section()
+        self._build_monitor_section()
+        self._build_progress_section()
+        self._build_log_section()
+
+    def _build_controls_section(self):
+        box = ttk.LabelFrame(self, text=_("encode_controls"))
+        box.grid(row=0, column=0, sticky="ew", padx=12, pady=(12, 6))
+        self.btn_start = ttk.Button(box, text=_("encode_start"), command=self._on_start)
+        self.btn_start.grid(row=0, column=0, padx=8, pady=8)
+        self.btn_pause = ttk.Button(box, text=_("encode_pause"), command=self._on_pause)
+        self.btn_pause.grid(row=0, column=1, padx=8, pady=8)
+        self.btn_stop = ttk.Button(box, text=_("encode_stop"), command=self._on_stop)
+        self.btn_stop.grid(row=0, column=2, padx=8, pady=8)
+
+    def _build_monitor_section(self):
+        box = ttk.LabelFrame(self, text=_("encode_monitor"))
+        box.grid(row=1, column=0, sticky="ew", padx=12, pady=6)
+        box.columnconfigure(3, weight=1)
+
+        self.var_cpu = tk.StringVar(value=_("encode_cpu").format(val="--"))
+        self.var_ram = tk.StringVar(value=_("encode_ram").format(val="--"))
+        self.var_disk = tk.StringVar(value=_("encode_disk").format(val="--"))
+
+        ttk.Label(box, textvariable=self.var_cpu).grid(row=0, column=0, sticky="w", padx=8, pady=6)
+        ttk.Label(box, textvariable=self.var_ram).grid(row=0, column=1, sticky="w", padx=8, pady=6)
+        ttk.Label(box, textvariable=self.var_disk).grid(row=0, column=2, sticky="w", padx=8, pady=6)
+        self.pb_cpu = ttk.Progressbar(box, mode="determinate", length=300,
+                                      style="Dark.Horizontal.TProgressbar")
+        self.pb_cpu.grid(row=0, column=3, sticky="e", padx=8, pady=6)
+
+    def _build_progress_section(self):
+        box = ttk.LabelFrame(self, text=_("encode_progress"))
+        box.grid(row=2, column=0, sticky="ew", padx=12, pady=6)
+        box.columnconfigure(1, weight=1)
+
+        ttk.Label(box, text=_("encode_worker_progress")).grid(row=0, column=0, sticky="w", padx=8, pady=(4, 2))
+        self.worker_bars = {}
+
+        for i in range(8):
+            lbl = ttk.Label(box, text=f"W{i+1}")
+            pb = ttk.Progressbar(box, mode="determinate", length=500,
+                                 style="Dark.Horizontal.TProgressbar", maximum=100)
+            pct = ttk.Label(box, text="0%")
+            lbl.grid(row=i+1, column=0, sticky="w", padx=8, pady=2)
+            pb.grid(row=i+1, column=1, sticky="ew", padx=8, pady=2)
+            pct.grid(row=i+1, column=2, sticky="e", padx=8, pady=2)
+            lbl.grid_remove(); pb.grid_remove(); pct.grid_remove()
+            self.worker_bars[i] = (lbl, pb, pct)
+
+        ttk.Label(box, text=_("encode_overall_progress")).grid(row=10, column=0, sticky="w", padx=8, pady=(10, 4))
+        self.pb_overall = ttk.Progressbar(box, mode="determinate", length=600,
+                                          style="Dark.Horizontal.TProgressbar", maximum=100)
+        self.pb_overall.grid(row=11, column=0, columnspan=3, sticky="ew", padx=8, pady=(0, 8))
+        self.var_overall = tk.StringVar(value="0%")
+        ttk.Label(box, textvariable=self.var_overall).grid(row=11, column=3, sticky="e", padx=(0, 8))
+
+    def _build_log_section(self):
+        box = ttk.LabelFrame(self, text=_("encode_log"))
+        box.grid(row=3, column=0, sticky="nsew", padx=12, pady=(6, 12))
+        box.rowconfigure(0, weight=1)
+        box.columnconfigure(0, weight=1)
+        self.txt = tk.Text(box, wrap="none", height=18, background="#141414",
+                           foreground="#d0d0d0", insertbackground="#ffffff", borderwidth=0)
+        self.txt.grid(row=0, column=0, sticky="nsew")
+        yscroll = ttk.Scrollbar(box, orient="vertical", command=self.txt.yview)
+        yscroll.grid(row=0, column=1, sticky="ns")
+        self.txt.configure(yscrollcommand=yscroll.set)
+        for tag, color in {
+            "info": "#d0d0d0", "success": "#4caf50", "warn": "#ffb74d",
+            "error": "#e57373", "title": "#00a884", "debug": "#9e9e9e"
+        }.items():
+            self.txt.tag_configure(tag, foreground=color)
+        self._log_line(_("encode_ready"), "title")
+
+    # -------------------- Logic --------------------
+
+    def _on_start(self):
+        if self.running:
+            messagebox.showinfo("Info", _("encode_already_running"))
+            return
+        jobs = [j for j in self.main_app.tab_config.jobs if getattr(j, "included", True)]
+        if not jobs:
+            messagebox.showerror("Error", _("error_no_jobs"))
+            return
+
+        self.reset_all_bars()
+
+        for j in jobs:
+            j.dst.parent.mkdir(parents=True, exist_ok=True)
+        defaults_perf = self.settings.get_performance_settings()
+        self.running = True
+        self.controller.start_encoding(jobs, defaults_perf)
+        self._log_line(_("encode_started").format(count=len(jobs)), "title")
+
+    def _on_pause(self):
+        if not self.running:
+            messagebox.showinfo("Info", _("encode_not_running"))
+            return
+        paused = self.controller.toggle_pause()
+        self._log_line(_("encode_paused") if paused else _("encode_resumed"),
+                       "warn" if paused else "info")
+
+    def _on_stop(self):
+        if not self.running:
+            self._log_line(_("encode_nothing_to_stop"), "warn")
+            return
+        self.controller.stop_all_processes()
+
+    # -------------------- Progress --------------------
+
+    def update_worker_bar(self, widx: int, pct: float):
+        if not (0 <= widx < len(self.worker_bars)):
+            return
+        lbl, pb, pct_lbl = self.worker_bars[widx]
+        try:
+            pct = max(0.0, min(float(pct), 100.0))
+        except Exception:
+            pct = 0.0
+        if not pb.winfo_ismapped():
+            lbl.grid(); pb.grid(); pct_lbl.grid()
+        pb["value"] = pct
+        pct_lbl.config(text=f"{pct:.0f}%")
+
+    def set_overall_progress(self, pct: float):
+        try:
+            pct = max(0.0, min(float(pct), 100.0))
+        except Exception:
+            pct = 0.0
+        self.pb_overall["value"] = pct
+        self.var_overall.set(f"{pct:.0f}%")
+
+    def reset_worker_bar(self, widx: int):
+        if not (0 <= widx < len(self.worker_bars)):
+            return
+        lbl, pb, pct_lbl = self.worker_bars[widx]
+        pb["value"] = 0
+        pct_lbl.config(text="0%")
+        # Keep visible or hide — your choice:
+        lbl.grid_remove(); pb.grid_remove(); pct_lbl.grid_remove()
+
+    def reset_all_bars(self):
+        for i in range(len(self.worker_bars)):
+            lbl, pb, pct_lbl = self.worker_bars[i]
+            pb["value"] = 0
+            pct_lbl.config(text="0%")
+            lbl.grid_remove(); pb.grid_remove(); pct_lbl.grid_remove()
+        self.pb_overall["value"] = 0
+        self.var_overall.set("0%")
+
+    # -------------------- Logging --------------------
+
+    def _log_line(self, text, level="info"):
+        ts = time.strftime("[%H:%M:%S] ")
+        self.txt.insert("end", ts + text + "\n", (level,))
+        self.txt.see("end")
+
+    # -------------------- System Monitor --------------------
+
+    def _start_system_monitor(self):
+        self._last_disk = psutil.disk_io_counters()
+        self._last_time = time.time()
+        self._update_sysmon()
+
+    def _update_sysmon(self):
+        try:
+            cpu = psutil.cpu_percent(interval=None)
+            ram = psutil.virtual_memory().percent
+            now = time.time()
+            cur = psutil.disk_io_counters()
+            delta_w = max(0, cur.write_bytes - self._last_disk.write_bytes)
+            sec = max(0.1, now - self._last_time)
+            mbps = (delta_w / 1e6) / sec
+
+            self.var_cpu.set(_("encode_cpu").format(val=f"{cpu:.0f}"))
+            self.var_ram.set(_("encode_ram").format(val=f"{ram:.0f}"))
+            self.var_disk.set(_("encode_disk").format(val=f"{mbps:.1f}"))
+            self.pb_cpu["value"] = cpu
+
+            self._last_disk, self._last_time = cur, now
+        except Exception:
+            pass
+        self.after(1000, self._update_sysmon)

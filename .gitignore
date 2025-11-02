@@ -1,0 +1,45 @@
+# ---- Python ----
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+*.sqlite3
+
+# ---- Virtual environments ----
+.venv/
+env/
+venv/
+ENV/
+
+# ---- PyCharm / JetBrains ----
+.idea/
+.vscode/
+*.iml
+
+# ---- Build / Distribution ----
+build/
+dist/
+*.spec
+*.egg-info/
+*.manifest
+
+# ---- System files ----
+.DS_Store
+Thumbs.db
+
+# ---- Temporary ----
+*.tmp
+*.bak
+*.swp
+*.swo
+
+# ---- Cache ----
+.cache/
+.mypy_cache/
+pytest_cache/
+__debug__/
+
+# ---- Folders ---
+Original_files/
+Re-encoded_files/
