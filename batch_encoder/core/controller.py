@@ -190,7 +190,7 @@ class EncoderController:
                         return
                     self._encode_job(widx, job, total_cores, state)
                 finally:
-                    self._print_q.put(("done", widx))
+                    self._print_q.put(("done", widx, job, None))
                     state["active"] -= 1
 
         for i, job in enumerate(self.jobs):
@@ -222,6 +222,7 @@ class EncoderController:
         if not job or not self.running or self._stop_event.is_set():
             return
 
+        self._print_q.put(("worker_start", widx, job.src.name, None))
         self._log(_("ctrl_encoding_start").format(name=job.src.name), "info")
         rec = state["jobs"].setdefault(job.src.name, {"status": "pending", "settings": job.settings})
 
@@ -307,8 +308,8 @@ class EncoderController:
 
                 now = time.time()
                 if now - last_emit > 0.5:  # update UI ~2x per second
-                    #self._print_q.put(("progress", widx, job.src.name, pct_worker))
-                    #self._print_q.put(("overall", None, None, overall_pct))
+                    self._print_q.put(("progress", widx, job.src.name, pct_worker))
+                    self._print_q.put(("overall", None, None, overall_pct))
                     last_emit = now
 
             try:

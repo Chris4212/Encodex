@@ -65,26 +65,27 @@ class EncodeTab(ttk.Frame):
         box.grid(row=2, column=0, sticky="ew", padx=12, pady=6)
         box.columnconfigure(1, weight=1)
 
-        ttk.Label(box, text=_("encode_worker_progress")).grid(row=0, column=0, sticky="w", padx=8, pady=(4, 2))
+        ttk.Label(box, text=_("encode_worker_progress")).grid(
+            row=0, column=0, sticky="w", padx=8, pady=(4, 2)
+        )
         self.worker_bars = {}
+        self._progress_box = box  # store reference for dynamic updates
 
-        for i in range(8):
-            lbl = ttk.Label(box, text=f"W{i+1}")
-            pb = ttk.Progressbar(box, mode="determinate", length=500,
-                                 style="Dark.Horizontal.TProgressbar", maximum=100)
-            pct = ttk.Label(box, text="0%")
-            lbl.grid(row=i+1, column=0, sticky="w", padx=8, pady=2)
-            pb.grid(row=i+1, column=1, sticky="ew", padx=8, pady=2)
-            pct.grid(row=i+1, column=2, sticky="e", padx=8, pady=2)
-            lbl.grid_remove(); pb.grid_remove(); pct.grid_remove()
-            self.worker_bars[i] = (lbl, pb, pct)
-
-        ttk.Label(box, text=_("encode_overall_progress")).grid(row=10, column=0, sticky="w", padx=8, pady=(10, 4))
-        self.pb_overall = ttk.Progressbar(box, mode="determinate", length=600,
-                                          style="Dark.Horizontal.TProgressbar", maximum=100)
-        self.pb_overall.grid(row=11, column=0, columnspan=3, sticky="ew", padx=8, pady=(0, 8))
+        ttk.Label(box, text=_("encode_overall_progress")).grid(
+            row=999, column=0, sticky="w", padx=8, pady=(10, 4)
+        )
+        self.pb_overall = ttk.Progressbar(
+            box,
+            mode="determinate",
+            length=600,
+            style="Dark.Horizontal.TProgressbar",
+            maximum=100,
+        )
+        self.pb_overall.grid(row=1000, column=0, columnspan=3, sticky="ew", padx=8, pady=(0, 8))
         self.var_overall = tk.StringVar(value="0%")
-        ttk.Label(box, textvariable=self.var_overall).grid(row=11, column=3, sticky="e", padx=(0, 8))
+        ttk.Label(box, textvariable=self.var_overall).grid(
+            row=1000, column=3, sticky="e", padx=(0, 8)
+        )
 
     def _build_log_section(self):
         box = ttk.LabelFrame(self, text=_("encode_log"))
@@ -141,15 +142,30 @@ class EncodeTab(ttk.Frame):
     # -------------------- Progress --------------------
 
     def update_worker_bar(self, widx: int, pct: float):
-        if not (0 <= widx < len(self.worker_bars)):
-            return
+        box = self._progress_box
+        if widx not in self.worker_bars:
+            # Dynamically create new row
+            row = len(self.worker_bars) + 1
+            lbl = ttk.Label(box, text=f"W{widx + 1}")
+            pb = ttk.Progressbar(
+                box,
+                mode="determinate",
+                length=500,
+                style="Dark.Horizontal.TProgressbar",
+                maximum=100,
+            )
+            pct_lbl = ttk.Label(box, text="0%")
+            lbl.grid(row=row, column=0, sticky="w", padx=8, pady=2)
+            pb.grid(row=row, column=1, sticky="ew", padx=8, pady=2)
+            pct_lbl.grid(row=row, column=2, sticky="e", padx=8, pady=2)
+            self.worker_bars[widx] = (lbl, pb, pct_lbl)
+
         lbl, pb, pct_lbl = self.worker_bars[widx]
         try:
             pct = max(0.0, min(float(pct), 100.0))
         except Exception:
             pct = 0.0
-        if not pb.winfo_ismapped():
-            lbl.grid(); pb.grid(); pct_lbl.grid()
+
         pb["value"] = pct
         pct_lbl.config(text=f"{pct:.0f}%")
 
@@ -161,14 +177,41 @@ class EncodeTab(ttk.Frame):
         self.pb_overall["value"] = pct
         self.var_overall.set(f"{pct:.0f}%")
 
-    def reset_worker_bar(self, widx: int):
-        if not (0 <= widx < len(self.worker_bars)):
-            return
-        lbl, pb, pct_lbl = self.worker_bars[widx]
-        pb["value"] = 0
-        pct_lbl.config(text="0%")
-        # Keep visible or hide — your choice:
-        lbl.grid_remove(); pb.grid_remove(); pct_lbl.grid_remove()
+    def reset_worker_bar(self, widx: int, job_name: str):
+        """Called when a worker begins a new job — ensures a fresh visible bar."""
+        box = self._progress_box
+
+        # Create bar dynamically if it doesn't exist
+        if widx not in self.worker_bars:
+            row = len(self.worker_bars) + 1
+            lbl = ttk.Label(box, text=f"W{widx + 1}: {job_name}")
+            pb = ttk.Progressbar(
+                box,
+                mode="determinate",
+                length=500,
+                style="Dark.Horizontal.TProgressbar",
+                maximum=100,
+            )
+            pct_lbl = ttk.Label(box, text="0%")
+            lbl.grid(row=row, column=0, sticky="w", padx=8, pady=2)
+            pb.grid(row=row, column=1, sticky="ew", padx=8, pady=2)
+            pct_lbl.grid(row=row, column=2, sticky="e", padx=8, pady=2)
+            self.worker_bars[widx] = (lbl, pb, pct_lbl)
+        else:
+            lbl, pb, pct_lbl = self.worker_bars[widx]
+            lbl.config(text=f"W{widx + 1}: {job_name}")
+            pb["value"] = 0
+            pct_lbl.config(text="0%")
+            if not pb.winfo_ismapped():
+                lbl.grid();
+                pb.grid();
+                pct_lbl.grid()
+
+    def mark_worker_done(self, widx: int):
+        if widx in self.worker_bars:
+            lbl, pb, pct = self.worker_bars[widx]
+            pb["value"] = 100
+            pct.config(text="Done")
 
     def reset_all_bars(self):
         for i in range(len(self.worker_bars)):

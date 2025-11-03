@@ -79,8 +79,8 @@ class EncoderGUI(tk.Tk):
         self.tab_config = ConfigTab(self.tabs, self)
         self.tabs.add(self.tab_config, text=_("tab_config"))
 
-        self.tab_encode = EncodeTab(self.tabs, self)
-        self.tabs.add(self.tab_encode, text=_("tab_encode"))
+        self.encode_tab = EncodeTab(self.tabs, self)
+        self.tabs.add(self.encode_tab, text=_("tab_encode"))
 
         self.tabs.select(0)
 
@@ -93,8 +93,8 @@ class EncoderGUI(tk.Tk):
 
     def _log_line(self, text: str, level="info"):
         """Central log output (redirected to Encode tab)."""
-        if hasattr(self, "tab_encode"):
-            self.tab_encode._log_line(text, level)
+        if hasattr(self, "encode_tab"):
+            self.encode_tab._log_line(text, level)
         else:
             print(text)
 
@@ -114,19 +114,28 @@ class EncoderGUI(tk.Tk):
 
                 elif kind == "progress":
                     _, widx, name, pct = item[:4]
-                    self._log_line(f"[DEBUG] Progress event W{widx}: {pct:.1f}% for {name}", "debug")
-                    self.tab_encode.update_worker_bar(widx, pct)
+                    #self._log_line(f"[DEBUG] Progress event W{widx}: {pct:.1f}% for {name}", "debug")
+                    self.encode_tab.update_worker_bar(widx, pct)
 
 
                 elif kind == "overall":
                     _, _, _, pct = item[:4]
-                    self._log_line(f"[DEBUG] Overall progress: {pct:.1f}%", "debug")
-                    self.tab_encode.set_overall_progress(pct)
+                    #self._log_line(f"[DEBUG] Overall progress: {pct:.1f}%", "debug")
+                    self.encode_tab.set_overall_progress(pct)
 
+                elif kind == "worker_start":
+                    # Messages come as (kind, widx, job_name, _)
+                    try:
+                        _, widx, job_name, _ = item
+                    except Exception:
+                        widx = None
+                        job_name = "?"
+                    if widx is not None:
+                        self.encode_tab.reset_worker_bar(widx, job_name)
 
                 elif kind == "done":
-                    _, widx = item
-                    self.tab_encode.reset_worker_bar(widx)
+                    _, widx, job_name, _ = item
+                    self.encode_tab.mark_worker_done(widx)
 
         except queue.Empty:
             pass
@@ -156,7 +165,7 @@ class EncoderGUI(tk.Tk):
 
             if hasattr(self, "tab_home"): self.tab_home.refresh_texts() if hasattr(self.tab_home, "refresh_texts") else None
             if hasattr(self, "tab_config"): self.tab_config.refresh_texts() if hasattr(self.tab_config, "refresh_texts") else None
-            if hasattr(self, "tab_encode"): self.tab_encode.refresh_texts() if hasattr(self.tab_encode, "refresh_texts") else None
+            if hasattr(self, "tab_encode"): self.encode_tab.refresh_texts() if hasattr(self.encode_tab, "refresh_texts") else None
 
             self._log_line(_("app_lang_reload").format(lang=lang_code.upper()), "info")
         except Exception as e:
