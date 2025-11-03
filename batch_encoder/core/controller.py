@@ -17,6 +17,7 @@ from batch_encoder.gui.localization import _
 from batch_encoder import config
 from .plugin_api import load_plugins
 from .ffmpeg_utils import build_ffmpeg_cmd
+import ctypes
 
 
 class EncoderController:
@@ -272,6 +273,8 @@ class EncoderController:
                 )
                 self._processes[proc.pid] = proc
                 self._log(f"[DEBUG] Spawned PID={proc.pid} for {job.src.name}", "info")
+                # --- Apply CPU affinity (hard cap per process) ---
+                self._set_process_affinity(proc, widx, total_cores)
 
             if self.paused:
                 self._async(self._suspend_process, proc.pid)
@@ -304,8 +307,8 @@ class EncoderController:
 
                 now = time.time()
                 if now - last_emit > 0.5:  # update UI ~2x per second
-                    self._print_q.put(("progress", widx, job.src.name, pct_worker))
-                    self._print_q.put(("overall", None, None, overall_pct))
+                    #self._print_q.put(("progress", widx, job.src.name, pct_worker))
+                    #self._print_q.put(("overall", None, None, overall_pct))
                     last_emit = now
 
             try:
@@ -372,6 +375,74 @@ class EncoderController:
         return pct
 
     # ---------------- Process control helpers ----------------
+
+    def _set_process_affinity(self, proc: subprocess.Popen, widx: int, total_cores: int):
+        """
+        Enforce per-worker CPU affinity (hard limit).
+        Works on Windows (via Win32 API) and POSIX (via psutil).
+        Also spawns a watchdog to keep children pinned.
+        """
+        import ctypes
+        import psutil, threading, time, os
+
+        try:
+            total = total_cores or os.cpu_count() or 1
+            n_workers = max(1, len(self.workers))
+            per_worker = max(1, total // n_workers)
+
+            start = widx * per_worker
+            end = min(start + per_worker, total)
+            if start >= total:
+                start = widx % total
+                end = start + 1
+
+            allowed_cores = list(range(start, end))
+
+            # --- Platform-specific enforcement ---
+            if os.name == "nt":
+                mask = 0
+                for c in allowed_cores:
+                    mask |= 1 << c
+
+                PROCESS_SET_INFORMATION = 0x0200
+                PROCESS_QUERY_INFORMATION = 0x0400
+                handle = ctypes.windll.kernel32.OpenProcess(
+                    PROCESS_SET_INFORMATION | PROCESS_QUERY_INFORMATION, False, proc.pid
+                )
+                if handle:
+                    success = ctypes.windll.kernel32.SetProcessAffinityMask(handle, mask)
+                    ctypes.windll.kernel32.CloseHandle(handle)
+                    if success:
+                        self._log(f"[DEBUG] Set Win32 affinity PID={proc.pid} -> cores {allowed_cores}", "debug")
+                    else:
+                        self._log(f"[WARN] SetProcessAffinityMask failed for PID={proc.pid}", "warning")
+            else:
+                psutil.Process(proc.pid).cpu_affinity(allowed_cores)
+                self._log(f"[DEBUG] Set affinity PID={proc.pid} -> cores {allowed_cores}", "debug")
+
+            # --- Continuous enforcement watchdog (covers ffmpeg children) ---
+            def _affinity_watchdog(pid, cores):
+                while True:
+                    try:
+                        parent = psutil.Process(pid)
+                        if not parent.is_running():
+                            break
+                        parent.cpu_affinity(cores)
+                        for c in parent.children(recursive=True):
+                            try:
+                                c.cpu_affinity(cores)
+                            except Exception:
+                                pass
+                    except Exception:
+                        break
+                    time.sleep(1.0)
+
+            threading.Thread(
+                target=_affinity_watchdog, args=(proc.pid, allowed_cores), daemon=True
+            ).start()
+
+        except Exception as e:
+            self._log(f"[WARN] Failed to set CPU affinity for PID={proc.pid}: {e}", "warning")
 
     def _suspend_all_processes(self):
         with self._lock:
