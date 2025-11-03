@@ -98,9 +98,8 @@ class SettingsManager:
         return self._settings.get(key, default)
 
     def set(self, key: str, value: Any) -> None:
-        if value == "as-is":
-            return  # skip writing, user left it unchanged
         self._settings[key] = value
+
 
     def as_dict(self) -> Dict[str, Any]:
         """Return a shallow copy of all current settings."""
