@@ -585,12 +585,8 @@ class ConfigTab(ttk.Frame):
         """Apply overrides only to selected jobs."""
         if not self.jobs:
             return
-        selected_iids = self.tree.selection()
-        selected = [self.jobs[int(i)] for i in selected_iids] if selected_iids else []
-        if not selected:
-            messagebox.showinfo(_("info_no_selection"), "No files selected.")
-            return
-        self._apply_common(selected)
+        selected_jobs = [j for j in self.jobs if getattr(j, "included", True)]
+        self._apply_common(selected_jobs)
 
     def _apply_to_all(self):
         """Apply overrides to all jobs."""
