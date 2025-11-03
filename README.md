@@ -41,3 +41,5 @@ pip install -r requirements.txt
 - Subtitles config
 - Linux support
 - ... let me know what you'd like
+
+- ## If you want to support me, please consider buying me a coffee --> https://buymeacoffee.com/chris4212
