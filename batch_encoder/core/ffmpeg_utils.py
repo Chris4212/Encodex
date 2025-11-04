@@ -6,22 +6,31 @@ All ffprobe results are normalized for consistent reuse across the app.
 """
 
 from __future__ import annotations
-import subprocess, json
+import subprocess, json, os, sys
 from pathlib import Path
 from typing import Dict, List, Any
 from batch_encoder.config import RESOLUTION_OPTIONS
 
+# ----------------------------------------------------------
+# FFPROBE / FFMPEG PATH RESOLVER
+# ----------------------------------------------------------
+
+def get_ffmpeg_path(tool: str = "ffmpeg") -> str:
+    """
+    Resolve ffmpeg/ffprobe path in both:
+      - Development mode (system PATH)
+      - PyInstaller builds (inside _MEIPASS/bin/ffmpeg)
+    """
+    base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+    candidate = base / "bin" / "ffmpeg" / (f"{tool}.exe" if os.name == "nt" else tool)
+    if candidate.exists():
+        return str(candidate)
+    return tool  # fallback to system PATH
+
 
 # ----------------------------------------------------------
-# FFPROBE WRAPPER (single source of truth for all probes)
+# FFPROBE WRAPPER
 # ----------------------------------------------------------
-
-import subprocess
-import json
-import os
-from pathlib import Path
-from typing import Dict, Any
-
 
 def ffprobe_media_info(src: Path) -> Dict[str, Any]:
     """
@@ -38,8 +47,11 @@ def ffprobe_media_info(src: Path) -> Dict[str, Any]:
     if not src or not Path(src).exists():
         return {"format": {"duration": 0.0}, "streams": []}
 
+    # Resolved ffprobe path
+    ffprobe_bin = get_ffmpeg_path("ffprobe")
+
     cmd = [
-        "ffprobe",
+        ffprobe_bin,
         "-v", "error",
         "-show_entries",
         "format=duration,bit_rate:stream=index,codec_type,codec_name,width,height,avg_frame_rate,r_frame_rate",
@@ -48,9 +60,7 @@ def ffprobe_media_info(src: Path) -> Dict[str, Any]:
     ]
 
     # --- Suppress command windows on Windows ---
-    creationflags = 0
-    if os.name == "nt":
-        creationflags = subprocess.CREATE_NO_WINDOW  # prevents flashing CMDs
+    creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
 
     try:
         result = subprocess.check_output(
@@ -107,7 +117,6 @@ def ffprobe_media_info(src: Path) -> Dict[str, Any]:
     return {"format": fmt, "streams": norm_streams}
 
 
-
 # ----------------------------------------------------------
 # FFMPEG COMMAND BUILDER
 # ----------------------------------------------------------
@@ -128,6 +137,9 @@ def build_ffmpeg_cmd(src: Path, dst: Path, settings: Dict[str, Any]) -> List[str
     threads = int(settings.get("CPU_CORES") or 2)
     extension = settings.get("extension", ".mp4")
 
+    # Resolved ffmpeg binary
+    ffmpeg_bin = get_ffmpeg_path("ffmpeg")
+
     # --- Ensure valid extension on output path ---
     if extension and not str(dst).lower().endswith(extension.lower()):
         dst = dst.with_suffix(extension)
@@ -145,7 +157,7 @@ def build_ffmpeg_cmd(src: Path, dst: Path, settings: Dict[str, Any]) -> List[str
 
     # --- Assemble ffmpeg command ---
     cmd = [
-        "ffmpeg",
+        ffmpeg_bin,
         "-y",
         "-hide_banner",
         "-loglevel", "error",  # controller may override later
@@ -168,6 +180,3 @@ def build_ffmpeg_cmd(src: Path, dst: Path, settings: Dict[str, Any]) -> List[str
     ]
 
     return cmd
-
-
-

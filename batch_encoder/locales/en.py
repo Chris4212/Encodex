@@ -6,7 +6,7 @@ Every string in the program comes from this dictionary.
 TEXT = {
 
     # ------------------- GENERAL -------------------
-    "app_title": "Batch Video Encoder",
+    "app_title": "Encodex - Batch Video Encoder",
     "app_initialized": "Application initialized.",
     "app_lang_reload": "Language switched to {lang}.",
     "confirm_exit_title": "Exit",

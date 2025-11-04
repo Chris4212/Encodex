@@ -2,12 +2,15 @@
 localization.py
 Centralized localization manager for Batch Video Encoder.
 Loads text resources based on current language setting.
+Compatible with both source and PyInstaller-frozen builds.
 """
 
-from importlib import import_module
+import sys
+import importlib.util
 from pathlib import Path
 from ..core.settings_manager import SettingsManager
 from .. import config
+
 
 class Localizer:
     _instance = None
@@ -22,7 +25,7 @@ class Localizer:
 
     @staticmethod
     def _detect_language() -> str:
-        """Try to detect user language via SettingsManager; fallback to config."""
+        """Try to detect user language via SettingsManager; fallback to config default."""
         try:
             sm = SettingsManager()
             lang = sm.get("language")
@@ -36,11 +39,26 @@ class Localizer:
             return "en"
 
     def load_language(self, lang: str):
-        """Load locale module dynamically."""
+        """Load locale module dynamically (handles PyInstaller frozen builds)."""
         try:
+            # Determine base path (normal or frozen exe)
+            base_dir = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent))
+            locale_file = base_dir / "locales" / f"{lang}.py"
+
+            if locale_file.exists():
+                spec = importlib.util.spec_from_file_location(lang, locale_file)
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+                self._texts = getattr(module, "TEXT", {})
+                self._lang = lang
+                return
+
+            # Fallback: try regular import (dev environment)
+            from importlib import import_module
             module = import_module(f".locales.{lang}", package="batch_encoder")
             self._texts = getattr(module, "TEXT", {})
             self._lang = lang
+
         except Exception as e:
             print(f"[Localization] Failed to load language '{lang}': {e}")
             self._texts = {}
@@ -61,5 +79,5 @@ class Localizer:
         return text
 
 
-# Singleton accessor
+# Singleton accessor for global translations
 _ = Localizer().get
