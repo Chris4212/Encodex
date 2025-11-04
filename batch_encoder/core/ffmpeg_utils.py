@@ -16,6 +16,13 @@ from batch_encoder.config import RESOLUTION_OPTIONS
 # FFPROBE WRAPPER (single source of truth for all probes)
 # ----------------------------------------------------------
 
+import subprocess
+import json
+import os
+from pathlib import Path
+from typing import Dict, Any
+
+
 def ffprobe_media_info(src: Path) -> Dict[str, Any]:
     """
     Probe a media file once and return normalized JSON info.
@@ -34,15 +41,26 @@ def ffprobe_media_info(src: Path) -> Dict[str, Any]:
     cmd = [
         "ffprobe",
         "-v", "error",
-        "-show_entries", "format=duration,bit_rate:stream=index,codec_type,codec_name,width,height,avg_frame_rate,r_frame_rate",
+        "-show_entries",
+        "format=duration,bit_rate:stream=index,codec_type,codec_name,width,height,avg_frame_rate,r_frame_rate",
         "-of", "json",
         str(src),
     ]
+
+    # --- Suppress command windows on Windows ---
+    creationflags = 0
+    if os.name == "nt":
+        creationflags = subprocess.CREATE_NO_WINDOW  # prevents flashing CMDs
+
     try:
-        result = subprocess.check_output(cmd, stderr=subprocess.STDOUT, text=True)
+        result = subprocess.check_output(
+            cmd,
+            stderr=subprocess.STDOUT,
+            text=True,
+            creationflags=creationflags
+        )
         info = json.loads(result)
     except subprocess.CalledProcessError as e:
-        info = {}
         try:
             info = json.loads(e.output or "{}")
         except Exception:
@@ -68,11 +86,10 @@ def ffprobe_media_info(src: Path) -> Dict[str, Any]:
     except Exception:
         fmt["bit_rate"] = "0"
 
-    # ensure streams exist
+    # normalize streams
     norm_streams = []
     for s in streams:
-        stype = s.get("codec_type", "")
-        if stype not in ("video", "audio"):
+        if s.get("codec_type") not in ("video", "audio"):
             continue
         norm = dict(s)
         for key in ("width", "height"):
@@ -84,11 +101,11 @@ def ffprobe_media_info(src: Path) -> Dict[str, Any]:
             norm[key] = str(norm.get(key) or "0/1")
         norm_streams.append(norm)
 
-    # Always include a dummy stream if none found
     if not norm_streams:
         norm_streams = [{"codec_type": "video", "width": 0, "height": 0, "avg_frame_rate": "0/1"}]
 
     return {"format": fmt, "streams": norm_streams}
+
 
 
 # ----------------------------------------------------------
