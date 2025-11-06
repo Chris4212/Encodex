@@ -12,7 +12,7 @@ A modern GUI tool for bulk video re-encoding using **FFmpeg**, built in Python w
 - **Impact Preview** – estimates file size, quality change, and efficiency before encoding  
 - **Plugin-ready** – extend behavior via plugin API  
 - **CPU throttle** – choose the number of CPU cores and workers to be used to keep your system running smoothly during encoding  
-- **Modern dark UI** with ttkbootstrap themes  
+- **GPU / CPU Support** - Seamlessly uses NVIDIA NVENC or CPU-based encoders. 
 
 ---
 
@@ -30,6 +30,13 @@ pip install -r requirements.txt
 
 ---
 
+Encodex is 100% open source.
+You can inspect the full code here on GitHub — the EXE is built directly from this code using PyInstaller.
+The binary is unsigned, so Windows may show an “Unknown Publisher” warning.
+You can verify safety by building your own EXE from source.
+
+---
+
 ## Current State
 
 - Core functions work, you can test smart mode, encoding, impact preview, cpu throttle.
@@ -42,4 +49,8 @@ pip install -r requirements.txt
 - Linux support
 - ... let me know what you'd like
 
-- ## If you want to support me, please consider buying me a coffee --> https://buymeacoffee.com/chris4212
+---
+
+## ☕ Support the Project
+
+If you find Encodex helpful, please consider supporting continued development --> https://buymeacoffee.com/chris4212
