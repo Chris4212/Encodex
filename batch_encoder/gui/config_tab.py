@@ -413,7 +413,7 @@ class ConfigTab(ttk.Frame):
             duration = metrics.get("duration_s", 0.0)
             width = metrics.get("width", "?")
             height = metrics.get("height", "?")
-            codec = j.settings.get("codec") or j.settings.get("vcodec", "")
+            codec = j.settings.get("vcodec") or j.settings.get("codec", "")
             crf = j.settings.get("crf", "")
             preset = j.settings.get("preset", "")
             smart_flag = "✓" if getattr(j, "use_smart", True) else ""
