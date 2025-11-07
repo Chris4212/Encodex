@@ -30,6 +30,8 @@ pip install -r requirements.txt
 
 ---
 
+## Release
+
 Encodex is 100% open source.
 You can inspect the full code here on GitHub — the EXE is built directly from this code using PyInstaller.
 The binary is unsigned, so Windows may show an “Unknown Publisher” warning.
@@ -40,6 +42,7 @@ You can verify safety by building your own EXE from source.
 ## Current State
 
 - Core functions work, you can test smart mode, encoding, impact preview, cpu throttle.
+- Linux support added on a new branch 'linux-support', can be tested as well.
 
 ## Planned updates
 
