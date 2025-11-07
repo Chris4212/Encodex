@@ -7,10 +7,12 @@ All logging text is localized.
 """
 
 from __future__ import annotations
+import importlib
 from importlib import import_module
 from pathlib import Path
 from typing import Callable
 from batch_encoder.gui.localization import _
+from batch_encoder.core.system_utils import is_windows, is_linux, is_macos
 
 
 class PluginAPI:
@@ -51,7 +53,6 @@ class PluginAPI:
             self.log_fn(_("plugin_invalid_hook").format(hook=hook_name), None, "warn")
             return
         self.hooks[hook_name].append(func)
-        # Show the function name if available, otherwise repr
         name = getattr(func, "__name__", repr(func))
         self.log_fn(_("plugin_registered").format(hook=hook_name, name=name), None, "info")
 
@@ -80,26 +81,40 @@ def load_plugins(package_root: str, logger: Callable[[str, int | None, str], Non
     pkg = package_root + ".plugins"
 
     try:
-        base = Path(import_module(package_root).__file__).parent / "plugins"
-    except Exception:
-        logger(_("plugin_dir_resolve_error"), None, "warn")
+        # Proper cross-platform path resolution
+        base_mod = import_module(package_root)
+        base_path = Path(base_mod.__file__).resolve().parent
+        base = base_path / "plugins"
+    except Exception as e:
+        logger(_("plugin_dir_resolve_error") + f" ({e})", None, "warn")
         return api
 
     if not base.exists():
         logger(_("plugin_no_dir"), None, "info")
         return api
 
+    # Use .glob for consistent order and cross-platform paths
     for file in sorted(base.glob("*.py")):
         if file.name == "__init__.py":
             continue
+
         mod_name = f"{pkg}.{file.stem}"
+
         try:
-            mod = import_module(mod_name)
+            # Force reload if plugin was already imported — useful for Linux file caching
+            if mod_name in importlib.sys.modules:
+                importlib.reload(importlib.sys.modules[mod_name])
+                mod = importlib.sys.modules[mod_name]
+            else:
+                mod = import_module(mod_name)
+
             if hasattr(mod, "register_plugin"):
                 mod.register_plugin(api)
                 logger(_("plugin_loaded").format(name=file.stem), None, "info")
             else:
                 logger(_("plugin_skipped").format(name=file.stem), None, "warn")
         except Exception as e:
+            # Detailed message includes path + error
             logger(_("plugin_failed").format(name=file.stem, err=e), None, "error")
+
     return api

@@ -15,17 +15,25 @@ from .ffmpeg_utils import ffprobe_media_info
 from .smart_mode import SmartOptimizer
 from batch_encoder.gui.localization import _
 from batch_encoder.config import SUPPORTED_EXTENSIONS
-
+from batch_encoder.core.system_utils import is_windows, is_linux, is_macos
 
 
 def _iter_media_files(in_dir: Path) -> List[Path]:
+    """Recursively list all supported media files (case-insensitive)."""
     files: List[Path] = []
+    exts = {e.lower() for e in SUPPORTED_EXTENSIONS}
+
     for root, _, names in os.walk(in_dir):
         for n in names:
-            p = Path(root) / n
-            if p.suffix.lower() in SUPPORTED_EXTENSIONS:
-                files.append(p)
-    return sorted(files)
+            try:
+                # Normalize Unicode filenames across OSes
+                p = Path(root) / n
+                if p.suffix.lower() in exts:
+                    files.append(p)
+            except Exception:
+                continue
+
+    return sorted(files, key=lambda x: str(x).lower())
 
 
 def prepare_session(
@@ -45,7 +53,12 @@ def prepare_session(
     """
     in_dir = Path(in_dir)
     out_dir = Path(out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        out_dir.mkdir(parents=True, exist_ok=True)
+    except Exception as e:
+        print(f"[WARN] Could not create output directory '{out_dir}': {e}")
+        return []
 
     optimizer = SmartOptimizer()
     jobs: List[Job] = []
@@ -60,27 +73,31 @@ def prepare_session(
     for f in files:
         try:
             rel = f.relative_to(in_dir).as_posix()
-            dst = (out_dir / rel).with_suffix(".mp4")  # normalize output extension
+            dst = (out_dir / rel).with_suffix(".mp4")
 
             # ---- PROBE ONCE ----
             info = ffprobe_media_info(f)
-            # duration for progress
+
             duration_s = 0.0
             try:
                 duration_s = float((info.get("format", {}) or {}).get("duration") or 0.0)
             except Exception:
                 duration_s = 0.0
 
-            size_mb = f.stat().st_size / (1024 * 1024)
+            try:
+                size_mb = f.stat().st_size / (1024 * 1024)
+            except Exception:
+                size_mb = 0.0
+
             job = Job(src=f, dst=dst, rel=rel, size=size_mb)
 
-            # single source of truth attached to Job
+            # Single source of truth attached to Job
             job.media_info = info
             job.stats["duration_s"] = duration_s
 
-            # baseline settings (can be overridden by Smart Mode)
+            # Baseline settings (can be overridden by Smart Mode)
             job.settings = {
-                "scale_height": None,   # passthrough by default
+                "scale_height": None,
                 "vcodec": "libx265",
                 "crf": "26",
                 "preset": "medium",
@@ -88,13 +105,13 @@ def prepare_session(
             }
 
             if smart_mode:
-                # NO RE-PROBE HERE — consume pre-probed info
+                # Consume pre-probed info
                 analysis = optimizer.analyze_info(info)
                 job.settings.update(analysis)
-                job.settings["smart_details"] = analysis  # <--- ensure this line exists
+                job.settings["smart_details"] = analysis
                 print(_("files_analyzed").format(name=f.name))
             else:
-                # Even if Smart Mode is off, attach basic metrics for UI display
+                # Even if Smart Mode is off, attach metrics for UI
                 meta = optimizer._extract_metrics(info)
                 job.settings["smart_details"] = {"metrics": {
                     "width": meta.get("width", 0),

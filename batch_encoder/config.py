@@ -1,23 +1,26 @@
 """
+config.py
+----------
 Global configuration, presets, dropdown options, and system defaults.
 This file is the immutable source of truth for *baseline* values only.
 Mutable/session settings are managed by settings_manager.py
 """
 
+import os
 from pathlib import Path
 
 # ------------------- LOCALIZATION -------------------
 LANGUAGE_DEFAULT = "en"   # Default UI language
-SUPPORTED_LANGUAGES = ["en"]  # Add "es", "fr", etc. later
+SUPPORTED_LANGUAGES = ["en"]  # Extend with "es", "fr", etc. as available
 
-# ------------------- ENCODING DEFAULTS (immutable) -------------------
+# ------------------- ENCODING DEFAULTS -------------------
 MODE_DEFAULT = "balanced_cpu"
 
-# Default folders (you can customize these to your environment)
-TARGET_FOLDER_DEFAULT = Path.home()
-OUTPUT_FOLDER_DEFAULT = Path.home() / "Encoded"
+# Default folders (cross-platform safe)
+TARGET_FOLDER_DEFAULT = Path.home().expanduser().resolve()
+OUTPUT_FOLDER_DEFAULT = (Path.home() / "Encoded").expanduser().resolve()
 
-# Global default encoding parameters (used to seed the SettingsManager)
+# Global default encoding parameters
 CODEC_DEFAULT = "libx265"
 CRF_DEFAULT = 23
 PRESET_DEFAULT = "medium"
@@ -25,12 +28,13 @@ PIX_FMT_DEFAULT = "yuv420p"
 RESOLUTION_DEFAULT = "source"       # key in RESOLUTION_OPTIONS
 RECURSIVE_SEARCH = True
 
-# CPU throttle
-CPU_CORES = 8
+# ------------------- HARDWARE DEFAULTS -------------------
+# CPU & GPU baseline defaults
+CPU_CORES = os.cpu_count() or 8
 MAX_WORKERS = 2
-USE_GPU = False
+USE_GPU = False  # Default off; NVENC is optional and requires NVIDIA on Linux/Windows
 
-# ------------------- SMART MODE 2.0 (tuning) -------------------
+# ------------------- SMART MODE THRESHOLDS -------------------
 CRF_LOW = 20
 CRF_HIGH = 28
 # Bitrate density thresholds (bitrate per pixel per frame)
@@ -50,20 +54,19 @@ DURATION_TOLERANCE = 0.9  # output duration must be ≥ 90% of source
 BACKUP_STATE_COUNT = 5    # keep 5 last state backups
 
 # ------------------- CORE PATHS / STATE -------------------
-# Package root for state/logs; adjust to your project's desired location
 ROOT_DIR = Path(__file__).resolve().parent
 STATE_FILE_DIR = ROOT_DIR / "state"
 STATE_FILE = "encode_state.json"
 
 # ------------------- SUPPORTED EXTENSIONS -------------------
 SUPPORTED_EXTENSIONS = {
-    ".mp4",".mov",".mkv",".avi",".flv",".webm",".m4v",
-    ".mpg",".mpeg",".ts",".m2ts",".wmv",".3gp",".vob",".f4v",".divx"
+    ".mp4", ".mov", ".mkv", ".avi", ".flv", ".webm", ".m4v",
+    ".mpg", ".mpeg", ".ts", ".m2ts", ".wmv", ".3gp", ".vob", ".f4v", ".divx"
 }
 
-# -----------------------------------------------------------------------------
+# -----------------------------------------------------------------
 # ENCODING GOALS (INTENT)
-# -----------------------------------------------------------------------------
+# -----------------------------------------------------------------
 ENCODING_GOALS = {
     "speed": {
         "label": "High Speed",
@@ -210,7 +213,10 @@ RESOLUTION_OPTIONS = {
 }
 
 # ------------------- WINDOWS POPUP SUPPRESSION -------------------
-# Creation flags used for subprocesses to avoid Cmd windows flashing on Windows,
-# and to create a new process group for more robust signaling if ever needed.
-CREATE_NO_WINDOW = 0x08000000
-CREATE_NEW_PROCESS_GROUP = 0x00000200
+if os.name == "nt":
+    # Hide cmd window when launching subprocesses
+    CREATE_NO_WINDOW = 0x08000000
+    CREATE_NEW_PROCESS_GROUP = 0x00000200
+else:
+    CREATE_NO_WINDOW = 0
+    CREATE_NEW_PROCESS_GROUP = 0

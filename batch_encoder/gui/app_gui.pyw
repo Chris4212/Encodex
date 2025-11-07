@@ -1,25 +1,27 @@
 """
 app_gui.pyw
 -----------
-Main application entry point for Batch Video Encoder GUI.
+Main application entry point for Encodex GUI.
 
 Integrates:
  - HomeTab     (workspace setup and system configuration)
  - ConfigTab   (global presets and per-file controls)
  - EncodeTab   (encoding dashboard and live monitor)
 
-All visible text is now loaded from the central localization system.
+All visible text is localized via the central localization system.
 """
 
 from __future__ import annotations
 import os, sys, queue
 import tkinter as tk
+from pathlib import Path
 from tkinter import ttk, messagebox
 
 from .gui_style import apply_dark_theme
 from batch_encoder.core.controller import EncoderController
 from batch_encoder.core.plugin_api import load_plugins
 from batch_encoder.core.settings_manager import SettingsManager
+from batch_encoder.core.system_utils import is_windows, is_linux, is_macos
 from .localization import _
 
 # Tabs
@@ -29,7 +31,7 @@ from .encode_tab import EncodeTab
 
 
 class EncoderGUI(tk.Tk):
-    """Main window for the Batch Video Encoder application."""
+    """Main window for the Encodex application."""
 
     def __init__(self):
         super().__init__()
@@ -38,33 +40,40 @@ class EncoderGUI(tk.Tk):
         self.configure(bg="#1e1e1e")
         self.minsize(1200, 800)
 
-        # Style / theme
+        # --- Style / Theme ---
         self.style = ttk.Style(self)
         apply_dark_theme(self.style)
 
-        # Core state
+        # --- Core State ---
         self.print_q: queue.Queue = queue.Queue()
         self.settings = SettingsManager(persist=True)
         self.controller = EncoderController(self)
 
-        # Plugin logger wrapper (adapts to plugin_api signature)
+        # --- Plugin logger (adapts to plugin_api signature) ---
         def plugin_logger(message: str, worker: int | None = None, level: str = "info"):
             prefix = f"[W{worker}] " if worker is not None else ""
             self._log_line(prefix + message, level)
 
         self.controller.set_plugin_api(load_plugins(self._package_root_name(), plugin_logger))
 
-        # Build tabs
+        # --- Build Tabs ---
         self._build_tabs()
 
-        # Log initialization
+        # --- Log startup ---
         self._log_line(_("app_initialized"), "title")
 
-        # Queue drain loop
+        # --- Queue polling loop ---
         self.after(150, self._drain_print_queue)
 
-        # Close event
+        # --- Handle Close ---
         self.protocol("WM_DELETE_WINDOW", self._on_close)
+
+        # --- Linux/Mac: ensure DPI scaling doesn't break layout ---
+        try:
+            if is_linux() or is_macos():
+                self.tk.call('tk', 'scaling', 1.0)
+        except Exception:
+            pass
 
     # --------------------- UI Setup ---------------------
 
@@ -84,7 +93,7 @@ class EncoderGUI(tk.Tk):
 
         self.tabs.select(0)
 
-    # --------------------- Helper Methods ---------------------
+    # --------------------- Logging ---------------------
 
     @staticmethod
     def _package_root_name() -> str:
@@ -111,25 +120,19 @@ class EncoderGUI(tk.Tk):
                     _, _, text, level = item
                     self._log_line(text, level)
 
-
                 elif kind == "progress":
                     _, widx, name, pct = item[:4]
-                    #self._log_line(f"[DEBUG] Progress event W{widx}: {pct:.1f}% for {name}", "debug")
                     self.encode_tab.update_worker_bar(widx, pct)
-
 
                 elif kind == "overall":
                     _, _, _, pct = item[:4]
-                    #self._log_line(f"[DEBUG] Overall progress: {pct:.1f}%", "debug")
                     self.encode_tab.set_overall_progress(pct)
 
                 elif kind == "worker_start":
-                    # Messages come as (kind, widx, job_name, _)
                     try:
                         _, widx, job_name, _ = item
                     except Exception:
-                        widx = None
-                        job_name = "?"
+                        widx, job_name = None, "?"
                     if widx is not None:
                         self.encode_tab.reset_worker_bar(widx, job_name)
 
@@ -140,6 +143,7 @@ class EncoderGUI(tk.Tk):
         except queue.Empty:
             pass
 
+        # Continue polling
         self.after(120, self._drain_print_queue)
 
     # --------------------- Event Handlers ---------------------
@@ -163,9 +167,13 @@ class EncoderGUI(tk.Tk):
             self.tabs.tab(1, text=_("tab_config"))
             self.tabs.tab(2, text=_("tab_encode"))
 
-            if hasattr(self, "tab_home"): self.tab_home.refresh_texts() if hasattr(self.tab_home, "refresh_texts") else None
-            if hasattr(self, "tab_config"): self.tab_config.refresh_texts() if hasattr(self.tab_config, "refresh_texts") else None
-            if hasattr(self, "tab_encode"): self.encode_tab.refresh_texts() if hasattr(self.encode_tab, "refresh_texts") else None
+            # Refresh localized content if supported by tab
+            if hasattr(self.tab_home, "refresh_texts"):
+                self.tab_home.refresh_texts()
+            if hasattr(self.tab_config, "refresh_texts"):
+                self.tab_config.refresh_texts()
+            if hasattr(self.encode_tab, "refresh_texts"):
+                self.encode_tab.refresh_texts()
 
             self._log_line(_("app_lang_reload").format(lang=lang_code.upper()), "info")
         except Exception as e:
@@ -175,7 +183,20 @@ class EncoderGUI(tk.Tk):
 # --------------------- Main Entry ---------------------
 
 if __name__ == "__main__":
-    base = os.path.abspath(os.path.dirname(__file__))
-    sys.path.insert(0, base)
-    app = EncoderGUI()
-    app.mainloop()
+    # --- Ensure proper base path for imports ---
+    base = Path(os.path.abspath(os.path.dirname(__file__)))
+    root = base.parent
+    if str(root) not in sys.path:
+        sys.path.insert(0, str(root))
+
+    # --- Handle PyInstaller _MEIPASS path ---
+    if hasattr(sys, "_MEIPASS"):
+        os.chdir(sys._MEIPASS)
+
+    # --- Launch GUI ---
+    try:
+        app = EncoderGUI()
+        app.mainloop()
+    except Exception as e:
+        import traceback
+        print("[FATAL] Application crashed:\n", traceback.format_exc())

@@ -6,30 +6,20 @@ All ffprobe results are normalized for consistent reuse across the app.
 """
 
 from __future__ import annotations
-import subprocess, json, os, sys
+import json
+import subprocess
 from pathlib import Path
 from typing import Dict, List, Any
+
 from batch_encoder.config import RESOLUTION_OPTIONS
+from batch_encoder.core.system_utils import (
+    get_ffmpeg_path,
+    check_output_silent,
+    is_windows,
+)
 
 # ----------------------------------------------------------
-# FFPROBE / FFMPEG PATH RESOLVER
-# ----------------------------------------------------------
-
-def get_ffmpeg_path(tool: str = "ffmpeg") -> str:
-    """
-    Resolve ffmpeg/ffprobe path in both:
-      - Development mode (system PATH)
-      - PyInstaller builds (inside _MEIPASS/bin/ffmpeg)
-    """
-    base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
-    candidate = base / "bin" / "ffmpeg" / (f"{tool}.exe" if os.name == "nt" else tool)
-    if candidate.exists():
-        return str(candidate)
-    return tool  # fallback to system PATH
-
-
-# ----------------------------------------------------------
-# FFPROBE WRAPPER
+# FFPROBE WRAPPER (cross-platform)
 # ----------------------------------------------------------
 
 def ffprobe_media_info(src: Path) -> Dict[str, Any]:
@@ -47,11 +37,8 @@ def ffprobe_media_info(src: Path) -> Dict[str, Any]:
     if not src or not Path(src).exists():
         return {"format": {"duration": 0.0}, "streams": []}
 
-    # Resolved ffprobe path
-    ffprobe_bin = get_ffmpeg_path("ffprobe")
-
     cmd = [
-        ffprobe_bin,
+        get_ffmpeg_path("ffprobe"),
         "-v", "error",
         "-show_entries",
         "format=duration,bit_rate:stream=index,codec_type,codec_name,width,height,avg_frame_rate,r_frame_rate",
@@ -59,16 +46,9 @@ def ffprobe_media_info(src: Path) -> Dict[str, Any]:
         str(src),
     ]
 
-    # --- Suppress command windows on Windows ---
-    creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
-
     try:
-        result = subprocess.check_output(
-            cmd,
-            stderr=subprocess.STDOUT,
-            text=True,
-            creationflags=creationflags
-        )
+        # check_output_silent handles CREATE_NO_WINDOW internally for Windows
+        result = check_output_silent(cmd)
         info = json.loads(result)
     except subprocess.CalledProcessError as e:
         try:
@@ -111,6 +91,7 @@ def ffprobe_media_info(src: Path) -> Dict[str, Any]:
             norm[key] = str(norm.get(key) or "0/1")
         norm_streams.append(norm)
 
+    # fallback dummy stream
     if not norm_streams:
         norm_streams = [{"codec_type": "video", "width": 0, "height": 0, "avg_frame_rate": "0/1"}]
 
@@ -118,7 +99,7 @@ def ffprobe_media_info(src: Path) -> Dict[str, Any]:
 
 
 # ----------------------------------------------------------
-# FFMPEG COMMAND BUILDER
+# FFMPEG COMMAND BUILDER (cross-platform)
 # ----------------------------------------------------------
 
 def build_ffmpeg_cmd(src: Path, dst: Path, settings: Dict[str, Any]) -> List[str]:
@@ -137,14 +118,11 @@ def build_ffmpeg_cmd(src: Path, dst: Path, settings: Dict[str, Any]) -> List[str
     threads = int(settings.get("CPU_CORES") or 2)
     extension = settings.get("extension", ".mp4")
 
-    # Resolved ffmpeg binary
-    ffmpeg_bin = get_ffmpeg_path("ffmpeg")
-
     # --- Ensure valid extension on output path ---
     if extension and not str(dst).lower().endswith(extension.lower()):
         dst = dst.with_suffix(extension)
 
-    # --- Build filter ---
+    # --- Build filter chain ---
     vf = []
     if isinstance(resolution, str) and resolution.lower() != "source":
         flt = RESOLUTION_OPTIONS.get(resolution.lower(), "")
@@ -157,13 +135,14 @@ def build_ffmpeg_cmd(src: Path, dst: Path, settings: Dict[str, Any]) -> List[str
 
     # --- Assemble ffmpeg command ---
     cmd = [
-        ffmpeg_bin,
+        get_ffmpeg_path("ffmpeg"),
         "-y",
         "-hide_banner",
-        "-loglevel", "error",  # controller may override later
+        "-loglevel", "error",
         "-i", str(src),
     ]
 
+    # Thread handling (unified)
     cmd += ["-threads", str(threads)]
 
     if vf_filter:

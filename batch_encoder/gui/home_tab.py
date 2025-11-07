@@ -7,7 +7,7 @@ All text is localized via the central locale system.
 """
 
 from __future__ import annotations
-import os, threading
+import os, threading, subprocess, sys
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from pathlib import Path
@@ -20,6 +20,7 @@ except Exception:
 
 from batch_encoder.core.file_utils import prepare_session
 from batch_encoder.core.models import Job
+from batch_encoder.core.system_utils import is_windows, is_linux, is_macos
 from .localization import _, Localizer
 from .. import config
 
@@ -247,8 +248,9 @@ class HomeTab(ttk.Frame):
         self.settings.save_user_file()
 
     def _browse_target(self):
-        d = filedialog.askdirectory(initialdir=self.var_target.get() or str(Path.home()))
+        d = filedialog.askdirectory(parent=self, initialdir=self.var_target.get() or str(Path.home()))
         if d:
+            d = str(Path(d).expanduser().resolve())
             self.var_target.set(d)
             self.settings.set("input_dir", d)
             self.settings.save_user_file()
@@ -256,29 +258,37 @@ class HomeTab(ttk.Frame):
                 self._fetch_jobs_background(Path(d), Path(self.var_output.get()))
 
     def _browse_output(self):
-        d = filedialog.askdirectory(initialdir=self.var_output.get() or str(Path.home()))
+        d = filedialog.askdirectory(parent=self, initialdir=self.var_output.get() or str(Path.home()))
         if d:
+            d = str(Path(d).expanduser().resolve())
             self.var_output.set(d)
             self.settings.set("output_dir", d)
             self.settings.save_user_file()
 
     def _manual_refresh(self):
-        target = Path(self.var_target.get())
-        out = Path(self.var_output.get())
+        target = Path(self.var_target.get()).expanduser().resolve()
+        out = Path(self.var_output.get()).expanduser().resolve()
         if not target.exists():
             messagebox.showerror(_("error_invalid_target"), _("error_invalid_target"))
             return
         self._fetch_jobs_background(target, out)
 
     def _open_output(self):
-        out = Path(self.var_output.get())
+        out = Path(self.var_output.get()).expanduser().resolve()
         if not out.exists():
             messagebox.showerror(_("error_invalid_output"), _("error_invalid_output"))
             return
         try:
-            os.startfile(out)
-        except Exception:
-            messagebox.showerror(_("error_invalid_output"), f"{out}")
+            if is_windows():
+                os.startfile(out)
+            elif is_macos():
+                subprocess.Popen(["open", str(out)])
+            elif is_linux():
+                subprocess.Popen(["xdg-open", str(out)])
+            else:
+                messagebox.showinfo(_("home_open_output"), str(out))
+        except Exception as e:
+            messagebox.showerror(_("error_invalid_output"), f"{out}\n{e}")
 
     def _open_resource_config(self):
         SystemResourcesDialog(self, self.settings)
@@ -305,13 +315,9 @@ class HomeTab(ttk.Frame):
             return
 
         if hasattr(self.main_app, "tab_config"):
-            # Populate the upper file list
             self.main_app.tab_config.populate_jobs(jobs)
-
-            # Refresh the Encode Impact Preview (bottom list)
             if hasattr(self.main_app.tab_config, "_refresh_impact_preview"):
                 self.main_app.tab_config._refresh_impact_preview(jobs)
-
         else:
             messagebox.showinfo(_("config_info"), f"{len(jobs)} " + _("config_no_jobs"))
 

@@ -5,6 +5,9 @@ Double-click this file to start the GUI.
 
 import sys, os
 from pathlib import Path
+from batch_encoder.core.system_utils import get_ffmpeg_path
+import shutil
+import tkinter.messagebox as mbox
 
 # ---------------------------------------------------------------------
 # Support both direct run (source) and frozen (PyInstaller) execution
@@ -32,5 +35,23 @@ sys.path.insert(0, str(BASE_DIR / "batch_encoder"))
 from batch_encoder.gui.app_gui import EncoderGUI
 
 if __name__ == "__main__":
+
+    if shutil.which(get_ffmpeg_path("ffmpeg")) is None:
+
+        mbox.showerror(
+            "FFmpeg Missing",
+            "FFmpeg could not be found.\n\nPlease install it from your package manager or place it in 'bin/ffmpeg/'."
+        )
+        sys.exit(1)
+
+    elif shutil.which(get_ffmpeg_path("ffprobe")) is None:
+        mbox.showerror(
+            "FFprobe Missing",
+            "FFprobe could not be found.\n\nPlease install it from your package manager or place it in 'bin/ffmpeg/'."
+        )
+        sys.exit(1)
+
+
+
     app = EncoderGUI()
     app.mainloop()

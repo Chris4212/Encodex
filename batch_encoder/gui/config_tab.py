@@ -27,6 +27,7 @@ from batch_encoder.config import (
 from .localization import _
 from .home_tab import ToolTip
 from batch_encoder.core.impact_estimator import ImpactEstimator
+from batch_encoder.core.system_utils import is_windows, is_linux, is_macos
 
 
 
@@ -93,27 +94,20 @@ class ConfigTab(ttk.Frame):
             width=18,
         )
         self.cmb_goal.grid(row=0, column=1, sticky="w", padx=(0, 10), pady=6)
-        ToolTip(self.cmb_goal,
-                "Select your encoding goal — determines how Smart Mode balances speed, compression, and quality.")
+        ToolTip(self.cmb_goal, _("Select your encoding goal — determines how Smart Mode balances speed, compression, and quality."))
         self.cmb_goal.bind("<<ComboboxSelected>>", self._on_goal_changed)
 
-        chk_gpu = ttk.Checkbutton(box, text="Use GPU (NVENC if available)", variable=self.var_use_gpu)
+        chk_gpu = ttk.Checkbutton(box, text=_("Use GPU (NVENC if available)"), variable=self.var_use_gpu)
         chk_gpu.grid(row=0, column=2, sticky="w", padx=(4, 8), pady=6)
-        ToolTip(chk_gpu,
-                "Enable NVIDIA NVENC hardware acceleration if supported. Increases speed slightly at minor quality cost.")
+        ToolTip(chk_gpu, _("Enable NVIDIA NVENC hardware acceleration if supported. Increases speed slightly at minor quality cost."))
 
         desc = ENCODING_GOALS.get(self.var_goal.get(), {}).get("desc", "")
-        self.lbl_goal_desc = ttk.Label(
-            box,
-            text=desc,
-            wraplength=650,
-            justify="left",
-        )
+        self.lbl_goal_desc = ttk.Label(box, text=desc, wraplength=650, justify="left")
         self.lbl_goal_desc.grid(row=1, column=0, columnspan=3, sticky="w", padx=8, pady=(0, 6))
 
         lbl_tip = ttk.Label(
             box,
-            text="💡 Your selected goal determines how Smart Mode behaves for analysis, codec choice, compression strength, and scaling.",
+            text=_("💡 Your selected goal determines how Smart Mode behaves for analysis, codec choice, compression strength, and scaling."),
             font=("TkDefaultFont", 9, "italic"),
             foreground="#8f8f8f",
             wraplength=700,
@@ -126,7 +120,6 @@ class ConfigTab(ttk.Frame):
         self.lbl_goal_desc.config(text=ENCODING_GOALS[key]["desc"])
         self.settings.set("goal", key)
         self.settings.save_user_file()
-        print("Goal changed to: " + key)
 
     # ---------------------------------------------------------------------
     # 🧠 SMART MODE ANALYSIS
@@ -138,12 +131,11 @@ class ConfigTab(ttk.Frame):
 
         btn_analyze = ttk.Button(box, text="Analyze Files", command=self._analyze_all)
         btn_analyze.grid(row=0, column=0, sticky="w", padx=8, pady=(8, 4))
-        ToolTip(btn_analyze,
-                "Analyze selected files to auto-detect optimal encoding settings based on your current goal.")
+        ToolTip(btn_analyze, _("Analyze selected files to auto-detect optimal encoding settings based on your current goal."))
 
         lbl_hint = ttk.Label(
             box,
-            text="Automatically assigns appropriate settings based on your goal and each file’s properties.",
+            text=_("Automatically assigns appropriate settings based on your goal and each file’s properties."),
             font=("TkDefaultFont", 9, "italic"),
             foreground="#8f8f8f",
             wraplength=700,
@@ -163,7 +155,6 @@ class ConfigTab(ttk.Frame):
         for i in range(8):
             box.columnconfigure(i, weight=1)
 
-        # Variables
         self.var_codec = tk.StringVar(value="as-is")
         self.var_crf = tk.StringVar(value="as-is")
         self.var_preset = tk.StringVar(value="as-is")
@@ -171,57 +162,41 @@ class ConfigTab(ttk.Frame):
         self.var_res = tk.StringVar(value="source")
         self.var_ext = tk.StringVar(value=".mp4")
 
-        # --- Row 1 -----------------------------------------------------------
         ttk.Label(box, text="Codec:").grid(row=0, column=0, sticky="w", padx=(8, 2), pady=4)
         cmb_codec = ttk.Combobox(box, textvariable=self.var_codec,
                                  values=["as-is"] + [c[0] for c in CODEC_CHOICES],
                                  width=14, state="readonly")
         cmb_codec.grid(row=0, column=1, sticky="w", padx=(0, 8), pady=4)
-        ToolTip(cmb_codec, "Manually select encoder (H.264, HEVC, AV1). Leave ‘as-is’ for Smart Mode.")
 
         ttk.Label(box, text="CRF:").grid(row=0, column=2, sticky="w", padx=(4, 2), pady=4)
         cmb_crf = ttk.Combobox(box, textvariable=self.var_crf,
                                values=["as-is"] + [str(i) for i in range(0, 52)],
                                width=6, state="readonly")
         cmb_crf.grid(row=0, column=3, sticky="w", padx=(0, 8), pady=4)
-        ToolTip(cmb_crf, "Constant Rate Factor — lower = higher quality. Leave ‘as-is’ for Smart Mode default.")
 
         ttk.Label(box, text="Preset:").grid(row=0, column=4, sticky="w", padx=(4, 2), pady=4)
         cmb_preset = ttk.Combobox(box, textvariable=self.var_preset,
                                   values=["as-is"] + PRESET_OPTIONS,
                                   width=10, state="readonly")
         cmb_preset.grid(row=0, column=5, sticky="w", padx=(0, 8), pady=4)
-        ToolTip(cmb_preset, "Encoding speed vs compression. Slower = smaller output.")
 
-        # --- Row 2 -----------------------------------------------------------
         ttk.Label(box, text="Pixel Format:").grid(row=1, column=0, sticky="w", padx=(8, 2), pady=4)
         cmb_pix = ttk.Combobox(box, textvariable=self.var_pixfmt,
                                values=["as-is"] + [p[0] for p in PIX_FMT_CHOICES],
                                width=12, state="readonly")
         cmb_pix.grid(row=1, column=1, sticky="w", padx=(0, 8), pady=4)
-        ToolTip(cmb_pix, "Choose color format and bit depth. ‘yuv420p’ is most compatible.")
 
         ttk.Label(box, text="Resolution:").grid(row=1, column=2, sticky="w", padx=(4, 2), pady=4)
         cmb_res = ttk.Combobox(box, textvariable=self.var_res,
                                values=list(RESOLUTION_OPTIONS.keys()),
                                width=10, state="readonly")
         cmb_res.grid(row=1, column=3, sticky="w", padx=(0, 8), pady=4)
-        ToolTip(cmb_res, "Downscale or keep original resolution.")
 
         ttk.Label(box, text="Extension:").grid(row=1, column=4, sticky="w", padx=(4, 2), pady=4)
         cmb_ext = ttk.Combobox(box, textvariable=self.var_ext,
                                values=sorted(list(SUPPORTED_EXTENSIONS)),
                                width=8, state="readonly")
         cmb_ext.grid(row=1, column=5, sticky="w", padx=(0, 8), pady=4)
-        ToolTip(cmb_ext, "Select desired output container format (e.g. MP4, MKV).")
-
-        # --- Buttons ---------------------------------------------------------
-        btn_apply_sel = ttk.Button(box, text="Apply to Selected", command=self._apply_to_selected)
-        btn_apply_all = ttk.Button(box, text="Apply to All", command=self._apply_to_all)
-        btn_apply_sel.grid(row=2, column=0, columnspan=2, sticky="w", padx=8, pady=(6, 6))
-        btn_apply_all.grid(row=2, column=2, columnspan=2, sticky="w", padx=8, pady=(6, 6))
-        ToolTip(btn_apply_sel, "Apply selected overrides only to highlighted files.")
-        ToolTip(btn_apply_all, "Apply selected overrides to all listed files.")
 
         # --- Tip -------------------------------------------------------------
         lbl_tip = ttk.Label(
@@ -616,7 +591,7 @@ class ConfigTab(ttk.Frame):
 
     def _analyze_all(self):
         if not self.jobs:
-            messagebox.showinfo(_("error_no_jobs"), _("error_no_jobs"))
+            messagebox.showinfo(_("No files"), _("Please load files before analyzing."))
             return
 
         self.lbl_status.config(text="🧠 Analyzing files...")
@@ -624,6 +599,7 @@ class ConfigTab(ttk.Frame):
         ui_defaults = self.settings.get_job_settings()
         goal = self.var_goal.get()
         use_gpu = self.var_use_gpu.get()
+        ext = self.var_ext.get()
 
         def worker():
             updated = []
@@ -632,22 +608,19 @@ class ConfigTab(ttk.Frame):
                     analysis = optimizer.analyze_info(j.media_info, goal, use_gpu=use_gpu)
                     new = dict(ui_defaults)
                     new.update({
-                        "vcodec": analysis.get("vcodec", new.get("codec", "libx265")),
-                        "codec": analysis.get("codec", "libx265"),
-                        "crf": str(analysis.get("crf", new.get("crf", "26"))),
+                        "vcodec": analysis.get("vcodec", "libx265"),
+                        "crf": str(analysis.get("crf", "26")),
                         "preset": analysis.get("preset", "medium"),
                         "pix_fmt": analysis.get("pix_fmt", "yuv420p"),
                         "scale_height": analysis.get("scale_height"),
                         "resolution": "source",
                         "goal": goal,
-                        "extension": self.var_ext.get(),
+                        "extension": ext,
                     })
                     j.settings.update(new)
-                    #j.settings["smart_details"] = analysis
                     updated.append(j)
                 except Exception:
                     pass
-
             self.after(0, lambda: self._on_analyze_complete(updated))
 
         threading.Thread(target=worker, daemon=True).start()

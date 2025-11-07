@@ -1,8 +1,10 @@
 """
 localization.py
+---------------
 Centralized localization manager for Batch Video Encoder.
 Loads text resources based on current language setting.
-Compatible with both source and PyInstaller-frozen builds.
+Fully compatible with both source and PyInstaller-frozen builds
+across Windows, Linux, and macOS.
 """
 
 import sys
@@ -23,6 +25,10 @@ class Localizer:
             cls._instance.load_language(cls._instance._lang)
         return cls._instance
 
+    # -----------------------------------------------------------
+    # Language detection
+    # -----------------------------------------------------------
+
     @staticmethod
     def _detect_language() -> str:
         """Try to detect user language via SettingsManager; fallback to config default."""
@@ -33,39 +39,70 @@ class Localizer:
                 return lang
         except Exception:
             pass
+
         try:
             return getattr(config, "LANGUAGE_DEFAULT", "en")
         except Exception:
             return "en"
 
+    # -----------------------------------------------------------
+    # Load / Reload
+    # -----------------------------------------------------------
+
     def load_language(self, lang: str):
-        """Load locale module dynamically (handles PyInstaller frozen builds)."""
+        """Load locale module dynamically, compatible with PyInstaller bundles."""
         try:
-            # Determine base path (normal or frozen exe)
+            # Determine base path: _MEIPASS (frozen) or normal source
             base_dir = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent))
             locale_file = base_dir / "locales" / f"{lang}.py"
 
+            # --- 1. Direct file load (frozen exe or local dev) ---
             if locale_file.exists():
-                spec = importlib.util.spec_from_file_location(lang, locale_file)
+                spec = importlib.util.spec_from_file_location(f"locale_{lang}", locale_file)
                 module = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(module)
                 self._texts = getattr(module, "TEXT", {})
                 self._lang = lang
                 return
 
-            # Fallback: try regular import (dev environment)
+            # --- 2. Fallback to importlib (development structure) ---
             from importlib import import_module
             module = import_module(f".locales.{lang}", package="batch_encoder")
             self._texts = getattr(module, "TEXT", {})
             self._lang = lang
+            return
 
         except Exception as e:
             print(f"[Localization] Failed to load language '{lang}': {e}")
-            self._texts = {}
-            self._lang = "en"
+            self._fallback_to_default()
+
+    # -----------------------------------------------------------
+    # Fallback
+    # -----------------------------------------------------------
+
+    def _fallback_to_default(self):
+        """Load built-in English fallback to avoid missing text errors."""
+        try:
+            base_dir = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent))
+            en_path = base_dir / "locales" / "en.py"
+            if en_path.exists():
+                spec = importlib.util.spec_from_file_location("locale_en", en_path)
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+                self._texts = getattr(module, "TEXT", {})
+                self._lang = "en"
+                return
+        except Exception:
+            pass
+
+        # Absolute minimal fallback
+        self._texts = {"app_title": "Encodex", "error_generic": "An error occurred."}
+        self._lang = "en"
+
+    # -----------------------------------------------------------
 
     def reload(self):
-        """Reload currently active language (useful after user changes it)."""
+        """Reload currently active language (after user changes it)."""
         self.load_language(self._lang)
 
     def get(self, key: str, **kwargs) -> str:

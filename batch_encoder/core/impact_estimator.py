@@ -10,6 +10,7 @@ based on both Smart Mode policy (intent/goal) and manual settings.
 from __future__ import annotations
 from typing import Dict, Any
 from .. import config
+from batch_encoder.core.system_utils import is_windows, is_linux, is_macos
 
 
 class ImpactEstimator:
@@ -30,7 +31,6 @@ class ImpactEstimator:
             crf = float(settings.get("crf", 26))
             preset = (settings.get("preset") or "").lower()
             goal_key = settings.get("goal", "balanced")
-            print("goal_key in estimate: ", goal_key)
             use_gpu = "nvenc" in codec_out or settings.get("use_gpu", False)
 
             # ------------------------------------------------------------------
@@ -39,7 +39,7 @@ class ImpactEstimator:
             density = (src_bitrate * 1_000_000) / max(width * height * fps, 1)
 
             # ------------------------------------------------------------------
-            # Efficiency table
+            # Codec efficiency factors
             # ------------------------------------------------------------------
             codec_eff = {
                 "libx265": 0.55, "hevc": 0.55, "h265": 0.55,
@@ -75,7 +75,6 @@ class ImpactEstimator:
             # Impact classification (goal-aware)
             # ------------------------------------------------------------------
             if goal_key in ("archive", "lossless"):
-                # Treat all results as visually identical unless extreme
                 if reduction_pct > -5:
                     impact, quality = "balanced", "≈ same"
                 elif reduction_pct < -30:
@@ -83,7 +82,6 @@ class ImpactEstimator:
                 else:
                     impact, quality = "efficient", "≈ same"
             else:
-                # dynamic thresholds: stricter for archival, looser for mobile
                 if goal_key in ("speed", "mobile", "size"):
                     t_eff, t_bal = -20, -5
                 else:
@@ -126,21 +124,16 @@ class ImpactEstimator:
         """Returns a bitrate adjustment multiplier per encoding goal."""
         g = (goal or "balanced").lower()
         bias_map = {
-            "speed": 1.05,
-            "mobile": 1.10,
-            "balanced": 1.00,
-            "quality": 0.95,
-            "archive": 0.90,
-            "lossless": 0.85,
-            "size": 1.08,
-            "web": 1.02,
-            "neutral": 1.00,
+            "speed": 1.05, "mobile": 1.10, "balanced": 1.00,
+            "quality": 0.95, "archive": 0.90, "lossless": 0.85,
+            "size": 1.08, "web": 1.02, "neutral": 1.00,
         }
         return bias_map.get(g, 1.0)
 
     # ------------------------------------------------------------------
     @staticmethod
     def _extract_metrics(info: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract normalized core metrics from ffprobe output."""
         fmt = info.get("format", {}) or {}
         streams = info.get("streams", []) or []
         v = next((s for s in streams if s.get("codec_type") == "video"), {})
@@ -158,8 +151,10 @@ class ImpactEstimator:
             bitrate = float(fmt.get("bit_rate") or 0.0) / 1_000_000.0
         except Exception:
             duration, bitrate = 0.0, 0.0
-        return {"width": width, "height": height, "codec": codec,
-                "fps": fps, "duration_s": duration, "bitrate_mbps": bitrate}
+        return {
+            "width": width, "height": height, "codec": codec,
+            "fps": fps, "duration_s": duration, "bitrate_mbps": bitrate,
+        }
 
     # ------------------------------------------------------------------
     def _derive_reason(self, meta: Dict[str, Any], settings: Dict[str, Any],
@@ -230,9 +225,8 @@ class ImpactEstimator:
                    use_gpu: bool, density: float, reduction: float) -> str:
         """Human-friendly summary for UI display."""
         g = (goal or "").lower()
-        print("Goal in _info_text: ", goal)
 
-        # Goal-based prefixes (intent context)
+        # Goal-based prefixes
         prefix_map = {
             "archive": "Archival intent — ",
             "lossless": "Archival intent — ",
@@ -244,11 +238,10 @@ class ImpactEstimator:
         }
         prefix = prefix_map.get(g, "")
 
-        # Goal-aware hard overrides (always take precedence)
+        # Goal-aware overrides
         if g in ("archive", "lossless"):
             base = "Lossless or near-lossless encoding; no quality degradation expected."
         else:
-            # Combine impact + quality context
             if impact == "efficient":
                 if "≈" in quality or "same" in quality.lower():
                     base = "Efficient compression — no visible loss expected."
@@ -267,11 +260,8 @@ class ImpactEstimator:
             else:
                 base = "Visual impact uncertain."
 
-        # GPU note (optional)
+        # GPU note
         gpu_note = " (hardware encode may slightly reduce compression efficiency)" if use_gpu else ""
-
-        # Density and reduction details
         density_note = f" Density={density:.5f}, size change={reduction:+.0f}%."
 
         return f"{prefix}{base}{gpu_note}{density_note}"
-
